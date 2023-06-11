@@ -54,7 +54,6 @@ public class PacketGateway {
 		}
 
 		try {
-			System.out.println("Sending Packet");
 			this.outputStream.write(packet.send());
 		} catch(Throwable Errors) {
 			throw new InternalError("Error while sending a packet", Errors);
