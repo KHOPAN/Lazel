@@ -3,21 +3,20 @@ package com.khopan.lazel.server;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.khopan.lazel.PacketGateway;
 import com.khopan.lazel.property.Property;
 import com.khopan.lazel.property.SimpleProperty;
 
 public class Server {
-	private static int Processor;
-
-	public final List<PacketGateway> clientList;
+	static int Processor;
 
 	private final Thread requestThread;
+	private final List<ClientProcessor> processors;
 
-	private ClientConnectionListener clientListener;
+	ClientConnectionListener connectionListener;
 	private ServerSocket socket;
 	private boolean started;
 	private boolean portSet;
@@ -26,10 +25,10 @@ public class Server {
 	private InetAddress address;
 
 	public Server() {
+		this.requestThread = new Thread(this :: requestThreadRun);
+		this.processors = new ArrayList<>();
 		this.started = false;
 		this.portSet = false;
-		this.clientList = new ArrayList<>();
-		this.requestThread = new Thread(this :: requestThreadRun);
 		this.backlog = 50;
 		this.address = null;
 	}
@@ -38,19 +37,29 @@ public class Server {
 		while(true) {
 			try {
 				Socket socket = this.socket.accept();
-				Thread thread = new Thread(() -> {
-					PacketGateway gateway = new PacketGateway(socket);
-					this.clientList.add(gateway);
+				ClientProcessor processor = new ClientProcessor(socket, this, this.processors.size());
+				this.processors.add(processor);
+				/*PacketGateways gateway = new PacketGateways(socket, true, null);
+				gateway.onEstablishedConnection = () -> {
+					Thread thread = new Thread(() -> {
+						this.clientList.add(gateway);
 
-					if(this.clientListener != null) {
-						this.clientListener.clientConnected(gateway);
-					}
-				});
+						if(this.clientListener != null) {
+							this.clientListener.clientConnected(gateway);
+						}
+					});
 
-				thread.setPriority(7);
-				Server.Processor++;
-				thread.setName("Lazel Client Request Processor #" + Server.Processor);
-				thread.start();
+					thread.setPriority(7);
+					Server.Processor++;
+					thread.setName("Lazel Client Request Processor #" + Server.Processor);
+					thread.start();
+				};*/
+			} catch(SocketException socket) {
+				if(this.started) {
+					throw new InternalError("Error while processing client request", socket);
+				} else {
+					break;
+				}
 			} catch(Throwable Errors) {
 				throw new InternalError("Error while processing client request", Errors);
 			}
@@ -79,9 +88,15 @@ public class Server {
 	public void stop() {
 		try {
 			this.socket.close();
+			this.requestThread.interrupt();
+			this.started = false;
 		} catch(Throwable Errors) {
 			throw new InternalError("Error while closing the server", Errors);
 		}
+	}
+
+	public ClientProcessor processor(int identifier) {
+		return this.processors.get(identifier);
 	}
 
 	public Property<Integer, Server> port() {
@@ -99,7 +114,7 @@ public class Server {
 		return new SimpleProperty<InetAddress, Server>(() -> this.address, address -> this.address = address, this).nullable();
 	}
 
-	public Property<ClientConnectionListener, Server> clientConnectionListener() {
-		return new SimpleProperty<ClientConnectionListener, Server>(() -> this.clientListener, clientListener -> this.clientListener = clientListener, this).nullable();
+	public Property<ClientConnectionListener, Server> connectionListener() {
+		return new SimpleProperty<ClientConnectionListener, Server>(() -> this.connectionListener, connectionListener -> this.connectionListener = connectionListener, this).nullable();
 	}
 }
