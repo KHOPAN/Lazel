@@ -5,11 +5,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.List;
 
 import com.khopan.lazel.ConnectionListener;
 import com.khopan.lazel.ConnectionMessage;
+import com.khopan.lazel.ConnectionResetListener;
 import com.khopan.lazel.PacketListener;
 import com.khopan.lazel.config.Converter;
 import com.khopan.lazel.packet.Packet;
@@ -26,6 +28,7 @@ public class Client {
 
 	private ConnectionListener connectionListener;
 	private PacketListener packetListener;
+	private ConnectionResetListener connectionResetListener;
 	private volatile boolean started;
 	private volatile boolean connected;
 	private volatile boolean established;
@@ -77,19 +80,6 @@ public class Client {
 			Client.Connector++;
 			serverConnectorThread.setName("Lazel Client Server Connector #" + Client.Connector);
 			serverConnectorThread.start();
-
-			/*this.packetGateway = new PacketGateways(this.socket, false, () -> {
-				Thread thread = new Thread(() -> {
-					if(this.connectionListener != null) {
-						this.connectionListener.connected();
-					}
-				});
-
-				thread.setPriority(7);
-				Client.Processor++;
-				thread.setName("Lazel Server Processor #" + Client.Processor);
-				thread.start();
-			});*/
 		}
 	}
 
@@ -135,7 +125,11 @@ public class Client {
 					throw new IllegalArgumentException("Invalid message type 0x" + String.format("%02x", messageType).toUpperCase());
 				}
 			} catch(Throwable Errors) {
-				throw new InternalError("Error while receiving packets", Errors);
+				if(Errors instanceof SocketException socket && "Connection reset".equals(socket.getMessage()) && this.connectionResetListener != null) {
+					this.connectionResetListener.connectionReset();
+				} else {
+					throw new InternalError("Error while receiving packets", Errors);
+				}
 			}
 		}
 	}
@@ -242,5 +236,9 @@ public class Client {
 
 	public Property<PacketListener, Client> packetListener() {
 		return new SimpleProperty<PacketListener, Client>(() -> this.packetListener, packetListener -> this.packetListener = packetListener, this).nullable();
+	}
+
+	public Property<ConnectionResetListener, Client> connectionResetListener() {
+		return new SimpleProperty<ConnectionResetListener, Client>(() -> this.connectionResetListener, connectionResetListener -> this.connectionResetListener = connectionResetListener, this).nullable();
 	}
 }

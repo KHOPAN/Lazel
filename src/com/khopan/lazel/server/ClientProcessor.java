@@ -5,10 +5,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.List;
 
 import com.khopan.lazel.ConnectionMessage;
+import com.khopan.lazel.ConnectionResetListener;
 import com.khopan.lazel.PacketListener;
 import com.khopan.lazel.config.Converter;
 import com.khopan.lazel.packet.Packet;
@@ -27,6 +29,7 @@ public class ClientProcessor {
 	private final List<Packet> packetQueue;
 	private boolean packetAvailable;
 	private PacketListener packetListener;
+	private ConnectionResetListener connectionResetListener;
 
 	ClientProcessor(Socket socket, Server server, int processorIdentifier) {
 		try {
@@ -89,6 +92,10 @@ public class ClientProcessor {
 					throw new IllegalArgumentException("Invalid message type 0x" + String.format("%02x", messageType).toUpperCase());
 				}
 			} catch(Throwable Errors) {
+				if(Errors instanceof SocketException socket && "Connection reset".equals(socket.getMessage()) && this.connectionResetListener != null) {
+					this.connectionResetListener.connectionReset();
+				}
+
 				throw new InternalError("Error while receiving packets", Errors);
 			}
 		}
@@ -150,5 +157,9 @@ public class ClientProcessor {
 
 	public Property<PacketListener, ClientProcessor> packetListener() {
 		return new SimpleProperty<PacketListener, ClientProcessor>(() -> this.packetListener, packetListener -> this.packetListener = packetListener, this).nullable();
+	}
+
+	public Property<ConnectionResetListener, ClientProcessor> connectionResetListener() {
+		return new SimpleProperty<ConnectionResetListener, ClientProcessor>(() -> this.connectionResetListener, connectionResetListener -> this.connectionResetListener = connectionResetListener, this).nullable();
 	}
 }
