@@ -94,9 +94,9 @@ public class ClientProcessor {
 			} catch(Throwable Errors) {
 				if(Errors instanceof SocketException socket && "Connection reset".equals(socket.getMessage()) && this.connectionResetListener != null) {
 					this.connectionResetListener.connectionReset();
+				} else {
+					throw new InternalError("Error while receiving packets", Errors);
 				}
-
-				throw new InternalError("Error while receiving packets", Errors);
 			}
 		}
 	}
