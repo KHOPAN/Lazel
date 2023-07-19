@@ -5,11 +5,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.List;
 
 import com.khopan.lazel.ConnectionListener;
 import com.khopan.lazel.ConnectionMessage;
+import com.khopan.lazel.DisconnectionListener;
 import com.khopan.lazel.PacketListener;
 import com.khopan.lazel.config.Converter;
 import com.khopan.lazel.packet.Packet;
@@ -21,28 +23,26 @@ public class Client {
 	private static int Receiver;
 	private static int Processor;
 
-	private final Thread reconnectionThread;
 	private final List<Packet> packetQueue;
 
+	private Thread reconnectionThread;
 	private ConnectionListener connectionListener;
+	private DisconnectionListener disconnectionListener;
 	private PacketListener packetListener;
 	private volatile boolean started;
 	private volatile boolean connected;
 	private volatile boolean established;
+	private volatile boolean packetAvailable;
 	private boolean portSet;
 	private int port;
 	private String host;
 	private Socket socket;
 	private InputStream inputStream;
 	private OutputStream outputStream;
-	private boolean packetAvailable;
 
 	public Client() {
 		this.reconnectionThread = new Thread(this :: reconnectionThread);
 		this.packetQueue = new ArrayList<>();
-		this.started = false;
-		this.connected = false;
-		this.portSet = false;
 		this.host = null;
 	}
 
@@ -73,7 +73,7 @@ public class Client {
 	}
 
 	private void receiveMessageThread() {
-		while(true) {
+		while(this.connected) {
 			try {
 				byte[] lengthByte = this.inputStream.readNBytes(4);
 
@@ -114,7 +114,29 @@ public class Client {
 					throw new IllegalArgumentException("Invalid message type 0x" + String.format("%02x", messageType).toUpperCase());
 				}
 			} catch(Throwable Errors) {
-				throw new InternalError("Error while receiving packets", Errors);
+				if(Errors instanceof SocketException socket) {
+					String message = socket.getMessage();
+
+					if("Connection reset".equals(message) || "Socket closed".equals(message)) {
+						this.connected = false;
+
+						if(this.disconnectionListener != null) {
+							this.disconnectionListener.disconnected();
+						}
+
+						try {
+							this.inputStream.close();
+							this.outputStream.close();
+							this.socket.close();
+						} catch(Throwable closingErrors) {
+							throw new InternalError("Error while closing streams", closingErrors);
+						}
+					} else {
+						throw new InternalError("Error while receiving packets", Errors);
+					}
+				} else {
+					throw new InternalError("Error while receiving packets", Errors);
+				}
 			}
 		}
 	}
@@ -204,6 +226,33 @@ public class Client {
 		this.started = false;
 	}
 
+	public boolean isConnected() {
+		return this.connected;
+	}
+
+	public void reconnect() {
+		try {
+			ByteArrayOutputStream stream = new ByteArrayOutputStream();
+			stream.write(Converter.intToByte(3));
+			stream.write(ConnectionMessage.TYPE_MESSAGE_SPECIAL);
+			stream.write(ConnectionMessage.TYPE_CLIENT_TO_SERVER);
+			stream.write(ConnectionMessage.MESSAGE_DISCONNECT);
+			this.outputStream.write(stream.toByteArray());
+			this.started = false;
+			this.connected = false;
+			this.established = false;
+			this.packetAvailable = false;
+			this.reconnectionThread = new Thread(this :: reconnectionThread);
+			this.inputStream.close();
+			this.outputStream.close();
+			this.socket.close();
+			this.start();
+		} catch(Throwable closingErrors) {
+			throw new InternalError("Error while reconnecting to the server", closingErrors);
+		}
+
+	}
+
 	public Property<Integer, Client> port() {
 		return new SimpleProperty<Integer, Client>(() -> this.port, port -> {
 			this.port = port;
@@ -217,6 +266,10 @@ public class Client {
 
 	public Property<ConnectionListener, Client> connectionListener() {
 		return new SimpleProperty<ConnectionListener, Client>(() -> this.connectionListener, connectionListener -> this.connectionListener = connectionListener, this).nullable();
+	}
+
+	public Property<DisconnectionListener, Client> disconnectionListener() {
+		return new SimpleProperty<DisconnectionListener, Client>(() -> this.disconnectionListener, disconnectionListener -> this.disconnectionListener = disconnectionListener, this).nullable();
 	}
 
 	public Property<PacketListener, Client> packetListener() {

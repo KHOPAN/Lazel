@@ -9,4 +9,5 @@ public interface ConnectionMessage {
 
 	public static final byte MESSAGE_REQUEST_CONNECTION = 0x05;
 	public static final byte MESSAGE_CONNECTED = 0x06;
+	public static final byte MESSAGE_DISCONNECT = 0x07;
 }
