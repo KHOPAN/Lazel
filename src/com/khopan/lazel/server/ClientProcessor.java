@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Constructor;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.ArrayList;
@@ -67,7 +68,7 @@ public class ClientProcessor {
 
 				if(messageType == ConnectionMessage.TYPE_MESSAGE_NORMAL) {
 					if(this.packetListener != null) {
-						this.packetListener.onPacketReceived(new Packet(stream.readAllBytes()));
+						this.receivePacket(stream.readAllBytes());
 					}
 				} else if(messageType == ConnectionMessage.TYPE_MESSAGE_SPECIAL) {
 					byte messageDirection = (byte) stream.read();
@@ -173,9 +174,12 @@ public class ClientProcessor {
 		try {
 			if(this.packetAvailable) {
 				byte[] byteArray = packet.getByteArray();
+				byte[] className = packet.getClass().getName().getBytes();
 				ByteArrayOutputStream stream = new ByteArrayOutputStream();
-				stream.write(Converter.intToByte(byteArray.length + 1));
+				stream.write(Converter.intToByte(byteArray.length + className.length + 5));
 				stream.write(ConnectionMessage.TYPE_MESSAGE_NORMAL);
+				stream.write(Converter.intToByte(className.length));
+				stream.write(className);
 				stream.write(byteArray);
 				byte[] data = stream.toByteArray();
 				this.outputStream.write(data);
@@ -184,6 +188,20 @@ public class ClientProcessor {
 			}
 		} catch(Throwable Errors) {
 			throw new InternalError("Error while sending a packet", Errors);
+		}
+	}
+
+	private void receivePacket(byte[] data) {
+		try {
+			ByteArrayInputStream stream = new ByteArrayInputStream(data);
+			int length = Converter.byteToInt(stream.readNBytes(4));
+			String className = new String(stream.readNBytes(length));
+			data = stream.readAllBytes();
+			Class<?> packetClass = Class.forName(className);
+			Constructor<?> constructor = packetClass.getConstructor(byte[].class);
+			this.packetListener.onPacketReceived((Packet) constructor.newInstance(data));
+		} catch(Throwable Errors) {
+			throw new InternalError("Error while processing packet", Errors);
 		}
 	}
 
